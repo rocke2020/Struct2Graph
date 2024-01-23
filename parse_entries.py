@@ -115,7 +115,6 @@ def parse_PDB(pdb_name, uniprot_id, user_chain):
                 _, UNP_id = record.dbxrefs[0].strip().split(':')
 
                 if UNP_id == uniprot_id:
-                    chain = record.annotations["chain"]
                     if chain == user_chain:
                         break
 
