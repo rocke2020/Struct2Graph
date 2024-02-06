@@ -11,6 +11,8 @@ import pickle
 from os import walk
 from numpy import linalg as LA
 from collections import defaultdict
+from utils_comm.log_util import ic, logger
+
 
 all_amino = []
 
@@ -192,6 +194,11 @@ def unique(list1):
 
 
 def group_by_coords(group,amino,coords):
+    """ 
+    Returns:
+        group_coords: 3D coordinates of the groups, (n, 3) ndarray
+        group_amino:  amino acid of the groups
+    """
     uniq_group   = np.unique(group)
     group_coords = np.zeros((uniq_group.shape[0],3))
     

@@ -20,7 +20,7 @@ def fetch_pdb_file(pdb_id):
     pdb_file = pdb_file.replace("\\n", "\n")
     return pdb_file
 
-
+# unique pdb file num is 3684
 with open("list_of_prots.txt", "r") as f:
     data_list = f.read().strip().split("\n")
 
