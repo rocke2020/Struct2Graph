@@ -99,7 +99,11 @@ amino_short["XLE"] = "J"
 
 def create_fingerprints(amino_acids, adjacency, radius):
     """Extract r-radius subgraphs (i.e., fingerprints)
-    from a molecular graph using WeisfeilerLehman-like algorithm."""
+    from a molecular graph using WeisfeilerLehman-like algorithm.
+    
+    Returns:
+        ndarray of the 1d, with the length as len(amino_acids)
+    """
     fingerprints = []
     if (len(amino_acids) == 1) or (radius == 0):
         fingerprints = [fingerprint_dict[a] for a in amino_acids]
@@ -404,7 +408,7 @@ num_prots = len(pdb_ids)
 count = 0
 q_count = 0
 
-adjacencies, proteins, pnames, pseqs = [], [], [], []
+adjacencies, proteins_graph_fingerprints, pnames, pseqs = [], [], [], []
 total_aas_num = 0
 
 for n in range(num_prots):
@@ -429,7 +433,7 @@ for n in range(num_prots):
         fingerprints = create_fingerprints(amino_acids, adjacency, radius)
         # break  # debug
         adjacencies.append(adjacency)
-        proteins.append(fingerprints)
+        proteins_graph_fingerprints.append(fingerprints)
         pnames.append(pdb_name)
 
         d_seq = {}
@@ -452,7 +456,7 @@ for n in range(num_prots):
             # 'TYR': 19, 'TMP': 20}
             if count < 100:
                 logger.debug("acid_dict: %s", acid_dict)
-            proteins = np.asarray(proteins, dtype=object)
+            proteins_graph_fingerprints = np.asarray(proteins_graph_fingerprints, dtype=object)
             adjacencies = np.asarray(adjacencies, dtype=object)
             pnames = np.asarray(pnames, dtype=object)
             pseqs = np.asarray(pseqs, dtype=object)
@@ -462,7 +466,7 @@ for n in range(num_prots):
                 + str(10 * q_count + 1)
                 + "_"
                 + str(10 * (q_count + 1)),
-                proteins,
+                proteins_graph_fingerprints,
             )
             np.save(
                 dir_input
@@ -488,7 +492,7 @@ for n in range(num_prots):
                 + str(10 * (q_count + 1)),
                 pseqs,
             )
-            adjacencies, proteins, pnames, pseqs = [], [], [], []
+            adjacencies, proteins_graph_fingerprints, pnames, pseqs = [], [], [], []
             q_count += 1
 
     except Exception as identifier:
