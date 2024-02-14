@@ -18,7 +18,7 @@ from numpy import linalg as LA
 from utils_comm.log_util import DATE_FORMAT, FMT, ic
 
 
-def get_logger(name=None, log_file=None, log_level=logging.INFO):
+def get_logger(name=None, log_file=None, log_level=logging.DEBUG):
     """default log level DEBUG"""
     _logger = logging.getLogger(name)
     logging.basicConfig(format=FMT, datefmt=DATE_FORMAT)
@@ -110,16 +110,23 @@ def create_fingerprints(amino_acids, adjacency, radius):
             amino_acids[:5],
             amino_acids[-5:],
         )
+        log_existent_fingerprint = True
         for i in range(len(amino_acids)):
             vertex = amino_acids[i]
             # Most adjacency value is > 0.0001.
             neighbors = sorted(amino_acids[np.where(adjacency[i] > 0.0001)[0]])
             # 14, [0, 1, 2, 8, 9, 9, 20, 20, 20, 20, 20, 20, 20, 20]
-            # logger.debug('%s, %s', len(neighbors), neighbors[:20])
+            if i == 0:
+                logger.debug("%s, %s", len(neighbors), neighbors[:20])
             neighbors = tuple(set(neighbors))
             # 6, (0, 1, 2, 8, 9, 20)
-            # logger.debug('%s, %s', len(neighbors), neighbors[:20])
             fingerprint = (vertex, neighbors)
+            if i == 0:
+                logger.debug("%s, %s", len(neighbors), neighbors[:20])
+                # fingerprint (6, (0, 1, 2, 3, 6, 7, 8, 13, 14, 18)) in existent dict
+            if log_existent_fingerprint and fingerprint in fingerprint_dict:
+                logger.debug("fingerprint %s in existent dict", fingerprint)
+                log_existent_fingerprint = False
             fingerprints.append(fingerprint_dict[fingerprint])
     # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     # logger.info('%s', fingerprints[:20])
@@ -158,6 +165,9 @@ def is_empty_pdb(pdb_id):
 
 
 def replace_pdb(pdb_id):
+    """TODO In my test, wrong to replace DBREF1, DBREF2, DBREF3, DBREF4, as DBREF
+    Such as 3jcm.pdb.
+    '"""
     with open(pdb_id + ".pdb", "r") as f:
         filedata = f.read()
         filedata = filedata.replace("DBREF1", "DBREF")
@@ -174,12 +184,14 @@ def replace_pdb(pdb_id):
 def parse_PDB(pdb_name, uniprot_id, user_chain):
 
     without_chain = False
-
+    # Bad logic to use try except here!
     try:
         if not user_chain == "0":
             for record in SeqIO.parse(pdb_name + ".pdb", "pdb-seqres"):
                 pdb_id = record.id.strip().split(":")[0]
                 chain = record.annotations["chain"]
+                # some pdb has no DBREF row and so no dbxrefs
+                # if len(record.dbxrefs):
                 _, UNP_id = record.dbxrefs[0].strip().split(":")
 
                 if UNP_id == uniprot_id:
@@ -191,7 +203,9 @@ def parse_PDB(pdb_name, uniprot_id, user_chain):
         else:
             chain = user_chain
             without_chain = True
-    except:
+    except Exception as e:
+        logger.warning("Error in %s, %s, %s\n%s", pdb_name, uniprot_id, user_chain, e)
+        # raise RuntimeError() from e
         chain = user_chain
 
     with open(pdb_name + ".pdb", "r") as fi:
@@ -391,7 +405,7 @@ count = 0
 q_count = 0
 
 adjacencies, proteins, pnames, pseqs = [], [], [], []
-
+total_aas_num = 0
 
 for n in range(num_prots):
     # if n+1 < 1334: continue
@@ -411,7 +425,7 @@ for n in range(num_prots):
         group_coords, group_amino = group_by_coords(group, amino, coords)
         residue_type, adjacency = get_graph_from_struct(group_coords, group_amino)
         amino_acids = create_amino_acids(residue_type)
-
+        total_aas_num += len(amino_acids)
         fingerprints = create_fingerprints(amino_acids, adjacency, radius)
         # break  # debug
         adjacencies.append(adjacency)
@@ -432,12 +446,12 @@ for n in range(num_prots):
 
         count += 1
         if count % 10 == 0 or n == num_prots - 1:
-            count = 0
             # {'ASP': 0, 'THR': 1, 'GLU': 2, 'ARG': 3, 'ALA': 4, 'TRP': 5, 'LEU': 6,
             # 'ASN': 7, 'LYS': 8, 'VAL': 9, 'HIS': 10, 'MET': 11, 'PRO': 12,
             # 'PHE': 13, 'ILE': 14, 'CYS': 15, 'GLN': 16, 'GLY': 17, 'SER': 18,
-            # 'TYR': 19, 'TMP': 20})
-            # logger.debug('acid_dict: %s', acid_dict)
+            # 'TYR': 19, 'TMP': 20}
+            if count < 100:
+                logger.debug("acid_dict: %s", acid_dict)
             proteins = np.asarray(proteins, dtype=object)
             adjacencies = np.asarray(adjacencies, dtype=object)
             pnames = np.asarray(pnames, dtype=object)
@@ -477,11 +491,11 @@ for n in range(num_prots):
             adjacencies, proteins, pnames, pseqs = [], [], [], []
             q_count += 1
 
-    except RuntimeError as identifier:
+    except Exception as identifier:
         logger.warning(
             "Error in %s, %s, %s\n%s", pdb_name, uniprot_id, user_chain, identifier
         )
         raise RuntimeError() from identifier
-
+logger.info("total_aas_num %s", total_aas_num)
 dump_dictionary(fingerprint_dict, dir_input + "fingerprint_dict.pickle")
 logger.info("Length of fingerprint dictionary: " + str(len(fingerprint_dict)))

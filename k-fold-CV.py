@@ -8,7 +8,7 @@ Created on Sun Nov  3 12:36:25 2019
 ### Import Necessary Libraries ###
 import pickle
 import timeit
-import os
+import os, sys
 import random
 import glob
 
@@ -23,6 +23,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
 
 from sklearn.metrics import roc_curve, auc
+from utils_comm.log_util import ic, logger
 
 ### Check if GPU is available ###
 if torch.cuda.is_available():
@@ -32,7 +33,7 @@ else:
 
 ### Define k-folds ###
 num_kfolds = 5
-kfold      = KFold(num_kfolds, True, 1)
+kfold      = KFold(num_kfolds, shuffle=True, random_state=1)
 
 
 ### Define PPI class ###
@@ -60,27 +61,31 @@ class ProteinProteinInteractionPrediction(nn.Module):
         return xs1, xs2
     
     def mutual_attention(self, h1, h2):
+        """  
+        Returns:
+            tensor (1, 2*dim), tensor (m1), tensor (m2)
+        """
         x1 = self.W1_attention(h1)
         x2 = self.W2_attention(h2)
-        
+        # x1.size: m1, dim; x2.size: m2, dim.
         m1 = x1.size()[0]
         m2 = x2.size()[0]
-        
-        c1 = x1.repeat(1,m2).view(m1, m2, dim)
-        c2 = x2.repeat(m1,1).view(m1, m2, dim)
+        # This is a subtle and correct operation.
+        c1 = x1.repeat(1, m2).view(m1, m2, dim)
+        c2 = x2.repeat(m1, 1).view(m1, m2, dim)
 
         d = torch.tanh(c1 + c2)
         alpha = torch.matmul(d,self.w).view(m1,m2)
-        
+        # b1 size: m1
         b1 = torch.mean(alpha,1)
         p1 = torch.softmax(b1,0)
+        # s1 size: dim, 1
         s1 = torch.matmul(torch.t(x1),p1).view(-1,1)
         
         b2 = torch.mean(alpha,0)
         p2 = torch.softmax(b2,0)
         s2 = torch.matmul(torch.t(x2),p2).view(-1,1)
-        
-        return torch.cat((s1,s2),0).view(1,-1), p1, p2
+        return torch.cat((s1, s2), 0).view(1,-1), p1, p2
     
     def forward(self, inputs):
 
@@ -89,7 +94,9 @@ class ProteinProteinInteractionPrediction(nn.Module):
         """Protein vector with GNN."""
         x_fingerprints1        = self.embed_fingerprint(fingerprints1)
         x_fingerprints2        = self.embed_fingerprint(fingerprints2)
-        
+        # 510 is the protein seq length, fingerprints1.shape: torch.Size([510])
+        # x_fingerprints1.shape: torch.Size([510, 20])
+        # ic(fingerprints1.shape, x_fingerprints1.shape, x_fingerprints2.shape)
         x_protein1, x_protein2 = self.gnn(x_fingerprints1, adjacency1, x_fingerprints2, adjacency2)
         
         """Protein vector with mutual-attention."""
@@ -99,7 +106,7 @@ class ProteinProteinInteractionPrediction(nn.Module):
         return z_interaction, p1, p2
     
     def __call__(self, data, train=True):
-        
+        """ ugly code, this part should be outside this model class. """
         inputs, t_interaction = data[:-1], data[-1]
         z_interaction, p1, p2 = self.forward(inputs)
         
@@ -142,7 +149,7 @@ class Trainer(object):
             adjacency2 = torch.FloatTensor(A2[i2])
             
             interaction = torch.LongTensor([data[2]])
-            
+            # ic(protein1.shape, protein2.shape, adjacency1.shape, adjacency2.shape, interaction.shape)
             comb = (protein1.to(device), adjacency1.to(device), protein2.to(device), adjacency2.to(device), interaction.to(device))
             
             loss = self.model(comb)
@@ -200,7 +207,7 @@ class Tester(object):
         
         tp, fp, tn, fn, accuracy, precision, sensitivity, recall, specificity, MCC, F1_score, Q9, ppv, npv = calculate_performace(len(sampling), labels,  y_true)
         roc_auc_val = roc_auc_score(t_list, score_list)
-        fpr, tpr, thresholds = roc_curve(labels, y_pred) #probas_[:, 1])
+        fpr, tpr, thresholds = roc_curve(t_list, y_pred) #probas_[:, 1])
         auc_val = auc(fpr, tpr)
 
         return accuracy, precision, recall, sensitivity, specificity, MCC, F1_score, roc_auc_val, auc_val, Q9, ppv, npv, tp, fp, tn, fn
@@ -301,8 +308,8 @@ dir_input        = ('pdb_files/input'+str(radius)+'/')
 examples         = np.load(dir_input + 'train_examples.npy')
 fingerprint_dict = load_pickle(dir_input + 'fingerprint_dict.pickle')
 n_fingerprint = len(fingerprint_dict) + 100
-
-
+ic(len(examples))
+# sys.exit()
 ### Preparing for evaluating interactions
 p_names = ['5KHB', '6NIV', '5KGZ', '2LY4']
 p_list = {}
@@ -359,7 +366,6 @@ for f in filenames:
         A_list['2LY4'] = A_2LY4
 
 
-
 fold_count = 1
 for train, test in kfold.split(examples):
     dataset_train = examples[train]
@@ -378,7 +384,7 @@ for train, test in kfold.split(examples):
     file_model = 'output/model/one/' + 'model_fold_' + str(fold_count)
     os.makedirs('output/model/one/', exist_ok=True)
 
-    print('Training...')
+    logger.info('Training...')
     start = timeit.default_timer()
     
     for epoch in range(iteration):
@@ -394,25 +400,23 @@ for train, test in kfold.split(examples):
         tester.result(epoch, time, loss,  accuracy, precision, recall, sensitivity, specificity, MCC, F1_score, roc_auc_val, auc_val, Q9, ppv, npv, tp, fp, tn, fn, file_result)
         tester.save_model(model, file_model)
 
-        print('Epoch: ' + str(epoch))
-        print('Accuracy: ' + str(accuracy))
-        print('Precision: ' + str(precision))
-        print('Recall: ' + str(recall))
-        print('Sensitivity: ' + str(sensitivity))
-        print('Specificity: ' + str(specificity))
-        print('MCC: ' + str(MCC))
-        print('F1-score: ' + str(F1_score))
-        print('ROC-AUC: ' + str(roc_auc_val))
-        print('AUC: ' + str(auc_val))
-        print('Q9: ' + str(Q9))
-        print('PPV: ' + str(ppv))
-        print('NPV: ' + str(npv))
-        print('TP: ' + str(tp))
-        print('FP: ' + str(fp))
-        print('TN: ' + str(tn))
-        print('FN: ' + str(fn))
-        print('\n')
-        
+        logger.info('Epoch: ' + str(epoch))
+        logger.info('Accuracy: ' + str(accuracy))
+        logger.info('Precision: ' + str(precision))
+        logger.info('Recall: ' + str(recall))
+        logger.info('Sensitivity: ' + str(sensitivity))
+        logger.info('Specificity: ' + str(specificity))
+        logger.info('MCC: ' + str(MCC))
+        logger.info('F1-score: ' + str(F1_score))
+        logger.info('ROC-AUC: ' + str(roc_auc_val))
+        logger.info('AUC: ' + str(auc_val))
+        logger.info('Q9: ' + str(Q9))
+        logger.info('PPV: ' + str(ppv))
+        logger.info('NPV: ' + str(npv))
+        logger.info('TP: ' + str(tp))
+        logger.info('FP: ' + str(fp))
+        logger.info('TN: ' + str(tn))
+        logger.info('FN: ' + str(fn) + '\n')
         
         p1 = '3FXI'
         protein1   = torch.LongTensor(p_list[p1])
