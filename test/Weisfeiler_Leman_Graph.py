@@ -27,7 +27,7 @@ def weisfeiler_lehman_step(G):
     new_labels = {}
     for node in G.nodes():
         # node: 16, type(node): <class 'int'>, G.nodes[node]["label"]: 'C'
-        ic(node, type(node), G.nodes[node]["label"])
+        # ic(node, type(node), G.nodes[node]["label"])
         neighbors_labels = [
             G.nodes[neighbor]["label"] for neighbor in G.neighbors(node)
         ]
